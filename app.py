@@ -5,10 +5,10 @@ import torch.nn.functional as F
 from torchvision import datasets, transforms
 import numpy as np
 from PIL import Image
-import requests # Para descargar el modelo de Google Drive
+import requests
 import io
 
-# --- Definición del Modelo VAE ---
+# --- Definición del Modelo VAE (DEBE SER IDÉNTICA A LA DE ENTRENAMIENTO) ---
 class Encoder(nn.Module):
     def __init__(self, latent_dim):
         super(Encoder, self).__init__()
@@ -51,22 +51,24 @@ class VAE(nn.Module):
         return mu + eps * std
 
     def forward(self, x):
-        mu, logvar = self.encoder(x)
+        recon_x, mu, logvar = self.encoder(x) # Aquí tenías un error, el encoder devuelve mu, logvar
         z = self.reparameterize(mu, logvar)
         recon_x = self.decoder(z)
         return recon_x, mu, logvar
 
 # --- Configuración del Modelo ---
 LATENT_DIM = 20
-MODEL_PATH = "vae_mnist_model.pt" 
+MODEL_PATH = "vae_mnist_model.pt"
 
+# --- Modelo de Carga (ahora carga desde PATH local) ---
 @st.cache_resource
-def load_model():
+def load_vae_model(): # Renombrado para claridad
     try:
         model = VAE(latent_dim=LATENT_DIM)
+        # Asegúrate de cargar el modelo en la CPU si Streamlit se ejecuta en CPU
         model.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device('cpu')))
         model.eval()
-        st.success("Modelo cargado exitosamente.")
+        st.success("Modelo VAE cargado exitosamente.")
         return model
     except FileNotFoundError:
         st.error(f"Error: El archivo del modelo '{MODEL_PATH}' no se encontró en el repositorio.")
@@ -76,18 +78,21 @@ def load_model():
         st.error(f"Error al cargar el modelo: {e}")
         return None
 
-vae_model = load_model()
+vae_model = load_vae_model()
 
 
+# --- Cargar y Preprocesar el Conjunto de Datos MNIST para el Clasificador ---
 transform_mnist = transforms.Compose([transforms.ToTensor()])
 
-
-@st.cache_data
+@st.cache_data # Caching para el dataset
 def load_mnist_data():
+    # Descargar solo si no existe localmente (para Streamlit Cloud)
     return datasets.MNIST(root='./data', train=True, download=True, transform=transform_mnist)
 
-mnist_dataset = load_mnist_data()
+# ¡QUITAMOS LA CARGA DIRECTA AQUÍ! No llamamos a load_mnist_data() aquí.
+# mnist_dataset = load_mnist_data() # Esta línea será eliminada o comentada.
 
+# --- Clasificador Simple para identificar el dígito de las imágenes generadas ---
 class DigitClassifier(nn.Module):
     def __init__(self):
         super(DigitClassifier, self).__init__()
@@ -103,13 +108,15 @@ class DigitClassifier(nn.Module):
         x = self.fc(x)
         return x
 
-@st.cache_resource 
-def train_classifier(dataset):
+@st.cache_resource # Caching para el clasificador
+def train_classifier(): # ¡YA NO RECIBE 'dataset' COMO ARGUMENTO!
+    # Cargar el dataset AQUI dentro de la función cacheada
+    dataset = load_mnist_data() # <-- LLAMAR LA FUNCIÓN CACHEADA DENTRO
     classifier = DigitClassifier()
     optimizer_clf = optim.SGD(classifier.parameters(), lr=0.01, momentum=0.9)
     criterion_clf = nn.CrossEntropyLoss()
 
-    clf_loader = DataLoader(dataset, batch_size=64, shuffle=True)
+    clf_loader = torch.utils.data.DataLoader(dataset, batch_size=64, shuffle=True)
 
     st.write("Entrenando clasificador auxiliar...")
     for epoch in range(1):
@@ -122,30 +129,34 @@ def train_classifier(dataset):
     st.success("Clasificador auxiliar entrenado.")
     return classifier
 
+# Llamar la función de entrenamiento sin pasar el dataset directamente
+classifier_model = train_classifier()
 
-classifier_model = train_classifier(mnist_dataset)
 
-
+# --- Lógica de Generación de Imágenes (Adaptada para generar un dígito específico) ---
 @st.cache_data
-def get_latent_means_for_digits(vae_model, dataset, num_samples_per_digit=100):
+def get_latent_means_for_digits(vae_model, num_samples_per_digit=100):
+    # Cargar el dataset AQUI dentro de la función cacheada
+    dataset = load_mnist_data() # <-- LLAMAR LA FUNCIÓN CACHEADA DENTRO
+
     latent_means = {i: [] for i in range(10)}
     vae_model.eval()
     with torch.no_grad():
         for i, (image, label) in enumerate(dataset):
             if len(latent_means[label]) < num_samples_per_digit:
-                image = image.unsqueeze(0) 
+                image = image.unsqueeze(0) # Añadir dimensión de batch
                 mu, _ = vae_model.encoder(image)
                 latent_means[label].append(mu.squeeze().numpy())
 
-            
             if all(len(v) >= num_samples_per_digit for v in latent_means.values()):
                 break
 
-    avg_latent_vectors = {digit: np.mean(latent_means[digit], axis=0) 
+    avg_latent_vectors = {digit: np.mean(latent_means[digit], axis=0)
                           for digit in range(10) if latent_means[digit]}
     return avg_latent_vectors
 
-avg_latent_vectors = get_latent_means_for_digits(vae_model, mnist_dataset)
+# Calcular los vectores latentes promedio para cada dígito
+avg_latent_vectors = get_latent_means_for_digits(vae_model)
 
 
 def generate_specific_digit_images(vae_model, target_digit, num_images=5, latent_dim=LATENT_DIM, device='cpu', avg_latent_vectors=None):
@@ -156,7 +167,7 @@ def generate_specific_digit_images(vae_model, target_digit, num_images=5, latent
         for _ in range(num_images):
             if target_digit in avg_latent_vectors:
                 base_z = torch.tensor(avg_latent_vectors[target_digit], dtype=torch.float32).to(device)
-                noise = torch.randn(latent_dim).to(device) * 0.5 # Ajusta la magnitud del ruido
+                noise = torch.randn(latent_dim).to(device) * 0.5
                 z = base_z + noise
             else:
                 z = torch.randn(latent_dim).to(device)
@@ -166,6 +177,7 @@ def generate_specific_digit_images(vae_model, target_digit, num_images=5, latent
     return generated_images
 
 
+# --- Interfaz de Usuario de Streamlit ---
 st.set_page_config(layout="centered", page_title="Generador de Dígitos MNIST")
 
 st.title("Handwritten Digit Image Generator")
@@ -174,29 +186,28 @@ st.write("Generate synthetic MNIST-like images using your trained VAE model.")
 if vae_model is None:
     st.stop()
 
-
+# Selección de dígito por el usuario
 digit_to_generate = st.selectbox(
     "Choose a digit to generate (0-9):",
     options=list(range(10)),
-    index=2 
+    index=2
 )
 
 if st.button("Generate Images"):
     st.subheader(f"Generated images of digit {digit_to_generate}")
 
-    # Generar las imágenes
     generated_imgs = generate_specific_digit_images(
-        vae_model, 
-        digit_to_generate, 
-        num_images=5, 
-        latent_dim=LATENT_DIM, 
+        vae_model,
+        digit_to_generate,
+        num_images=5,
+        latent_dim=LATENT_DIM,
         device='cpu',
         avg_latent_vectors=avg_latent_vectors
     )
 
     cols = st.columns(5)
 
-    for i, img_array in enumerate(generated_imgs):
+    for i, img_array in enumerate(generated_imgs:
         with cols[i]:
             img_pil = Image.fromarray((img_array * 255).astype(np.uint8))
             st.image(img_pil, caption=f"Sample {i+1}", use_column_width=True)
