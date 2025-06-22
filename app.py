@@ -2,6 +2,7 @@ import streamlit as st
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim 
 from torchvision import datasets, transforms
 import numpy as np
 from PIL import Image
