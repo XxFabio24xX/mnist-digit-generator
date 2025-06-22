@@ -89,9 +89,6 @@ def load_mnist_data():
     # Descargar solo si no existe localmente (para Streamlit Cloud)
     return datasets.MNIST(root='./data', train=True, download=True, transform=transform_mnist)
 
-# ¡QUITAMOS LA CARGA DIRECTA AQUÍ! No llamamos a load_mnist_data() aquí.
-# mnist_dataset = load_mnist_data() # Esta línea será eliminada o comentada.
-
 # --- Clasificador Simple para identificar el dígito de las imágenes generadas ---
 class DigitClassifier(nn.Module):
     def __init__(self):
@@ -109,9 +106,8 @@ class DigitClassifier(nn.Module):
         return x
 
 @st.cache_resource # Caching para el clasificador
-def train_classifier(): # ¡YA NO RECIBE 'dataset' COMO ARGUMENTO!
-    # Cargar el dataset AQUI dentro de la función cacheada
-    dataset = load_mnist_data() # <-- LLAMAR LA FUNCIÓN CACHEADA DENTRO
+def train_classifier(): 
+    dataset = load_mnist_data()
     classifier = DigitClassifier()
     optimizer_clf = optim.SGD(classifier.parameters(), lr=0.01, momentum=0.9)
     criterion_clf = nn.CrossEntropyLoss()
@@ -207,7 +203,7 @@ if st.button("Generate Images"):
 
     cols = st.columns(5)
 
-    for i, img_array in enumerate(generated_imgs:
+    for i, img_array in enumerate(generated_imgs):
         with cols[i]:
             img_pil = Image.fromarray((img_array * 255).astype(np.uint8))
             st.image(img_pil, caption=f"Sample {i+1}", use_column_width=True)
