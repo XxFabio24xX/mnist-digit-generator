@@ -131,18 +131,17 @@ classifier_model = train_classifier()
 
 
 # --- Lógica de Generación de Imágenes (Adaptada para generar un dígito específico) ---
-@st.cache_data
-def get_latent_means_for_digits(vae_model, num_samples_per_digit=100):
-    # Cargar el dataset AQUI dentro de la función cacheada
-    dataset = load_mnist_data() # <-- LLAMAR LA FUNCIÓN CACHEADA DENTRO
+@st.cache_data # Caching para los puntos latentes promedio
+def get_latent_means_for_digits(_vae_model, num_samples_per_digit=100): 
+    dataset = load_mnist_data()
 
     latent_means = {i: [] for i in range(10)}
-    vae_model.eval()
+    _vae_model.eval()
     with torch.no_grad():
         for i, (image, label) in enumerate(dataset):
             if len(latent_means[label]) < num_samples_per_digit:
-                image = image.unsqueeze(0) # Añadir dimensión de batch
-                mu, _ = vae_model.encoder(image)
+                image = image.unsqueeze(0)
+                mu, _ = _vae_model.encoder(image) 
                 latent_means[label].append(mu.squeeze().numpy())
 
             if all(len(v) >= num_samples_per_digit for v in latent_means.values()):
@@ -151,8 +150,7 @@ def get_latent_means_for_digits(vae_model, num_samples_per_digit=100):
     avg_latent_vectors = {digit: np.mean(latent_means[digit], axis=0)
                           for digit in range(10) if latent_means[digit]}
     return avg_latent_vectors
-
-# Calcular los vectores latentes promedio para cada dígito
+    
 avg_latent_vectors = get_latent_means_for_digits(vae_model)
 
 
