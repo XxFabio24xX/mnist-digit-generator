@@ -192,7 +192,7 @@ if st.button("Generate Images"):
     st.subheader(f"Generated images of digit {digit_to_generate}")
 
     generated_imgs = generate_specific_digit_images(
-        _vae_model,
+        vae_model, 
         digit_to_generate,
         num_images=5,
         latent_dim=LATENT_DIM,
