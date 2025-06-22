@@ -1,5 +1,5 @@
-torch==2.0.1 # O la versión que uses en Colab
-torchvision==0.15.2 # O la versión que uses en Colab
+torch==2.6.1 # O la versión que uses en Colab
+torchvision==0.21.0 # O la versión que uses en Colab
 numpy
 pandas
 streamlit
